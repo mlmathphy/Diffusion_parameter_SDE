@@ -38,12 +38,16 @@ plt.rcParams['font.family'] = 'serif'
 plt.rcParams['font.serif'] = ['CMU Serif', 'Computer Modern Roman', 'Times New Roman']
 plt.rcParams['mathtext.fontset'] = 'cm'
 plt.rcParams['text.usetex'] = False  # Set True if LaTeX is available
-plt.rcParams['font.size'] = 14  # Base font size for figures
-plt.rcParams['axes.labelsize'] = 16
-plt.rcParams['axes.titlesize'] = 16
-plt.rcParams['xtick.labelsize'] = 14
-plt.rcParams['ytick.labelsize'] = 14
-plt.rcParams['legend.fontsize'] = 14
+plt.rcParams['font.size'] = 18  # Base font size for figures
+plt.rcParams['axes.labelsize'] = 20
+plt.rcParams['axes.titlesize'] = 20
+plt.rcParams['xtick.labelsize'] = 16
+plt.rcParams['ytick.labelsize'] = 16
+plt.rcParams['legend.fontsize'] = 16
+
+# Line and marker settings
+LINEWIDTH = 2.5
+MARKERSIZE = 8
 
 # =============================================================================
 # Check Model Exists
@@ -124,19 +128,20 @@ for idx, mu_test in enumerate(mu_values_plot):
     y_range = np.linspace(exact_mean - 4*exact_std, exact_mean + 4*exact_std, 300)
 
     pdf_exact = exact_conditional_pdf(y_range, x_fixed, mu_test, cfg.DT)
-    # Exact: wider, more transparent
-    ax.plot(y_range, pdf_exact, color=colors[idx], linewidth=3, alpha=0.5,
+    # Exact: solid line
+    ax.plot(y_range, pdf_exact, color=colors[idx], linewidth=LINEWIDTH,
             label=f'Exact ($\\mu={mu_test}$)')
 
     kde_learned = gaussian_kde(samples_learned)
     pdf_learned = kde_learned(y_range)
-    # Learned: thinner, solid
-    ax.plot(y_range, pdf_learned, color=colors[idx], linewidth=1.5,
-            label=f'Learned ($\\mu={mu_test}$)')
+    # Learned: same color as exact, but with markers (subsample for clarity)
+    subsample = 15
+    ax.plot(y_range[::subsample], pdf_learned[::subsample], 'o', color=colors[idx],
+            markersize=MARKERSIZE, label=f'Learned ($\\mu={mu_test}$)')
 
-ax.set_xlabel(r'$X_{n+1}$', fontsize=16)
-ax.set_ylabel('Density', fontsize=16, rotation=0, ha='right')
-ax.legend(fontsize=14)
+ax.set_xlabel(r'$X_{n+1}$')
+ax.set_ylabel('Density', rotation=0, ha='right')
+ax.legend(loc='upper right')
 
 # Right: Conditional mean vs mu
 ax = axes[1]
@@ -144,24 +149,52 @@ mu_test_range = np.linspace(cfg.MU_RANGE[0], cfg.MU_RANGE[1], 21)
 
 means_exact = []
 means_learned = []
+vars_exact = []
+vars_learned = []
 
 for mu_test in mu_test_range:
     means_exact.append(exact_conditional_mean(x_fixed, mu_test, cfg.DT))
+    vars_exact.append(cfg.DT)  # Exact variance is Delta t
     samples = model.sample(x=x_fixed, mu=mu_test, n_samples=cfg.N_SAMPLES_STAT).flatten()
     means_learned.append(np.mean(samples))
+    vars_learned.append(np.var(samples))
 
-# Exact: wider, more transparent
-ax.plot(mu_test_range, means_exact, color=colors[0], linewidth=3, alpha=0.5, label='Exact')
-# Learned: markers
-ax.plot(mu_test_range, means_learned, 'o', color=colors[1], markersize=5, label='Learned')
-ax.set_xlabel(r'$\mu$', fontsize=16)
-ax.set_ylabel(r'$\mathbb{E}[X_{n+1}]$', fontsize=16, rotation=0, ha='right')
-ax.legend(fontsize=14)
+means_exact = np.array(means_exact)
+means_learned = np.array(means_learned)
+vars_exact = np.array(vars_exact)
+vars_learned = np.array(vars_learned)
+
+# Exact: solid line
+ax.plot(mu_test_range, means_exact, color=colors[0], linewidth=LINEWIDTH, label='Exact')
+# Learned: same color, markers
+ax.plot(mu_test_range, means_learned, 'o', color=colors[0], markersize=MARKERSIZE, label='Learned')
+ax.set_xlabel(r'$\mu$')
+ax.set_ylabel(r'$\mathbb{E}[X_{n+1}]$', rotation=0, ha='right')
+ax.legend(loc='upper left')
 
 plt.tight_layout()
 plt.savefig(os.path.join(cfg.FIG_DIR, 'fig1_conditional_combined.pdf'), dpi=300, bbox_inches='tight')
 plt.close()
 print(f"Saved: {cfg.FIG_DIR}/fig1_conditional_combined.pdf")
+
+# Print error statistics for Figure 1
+print("\n" + "=" * 60)
+print("Figure 1 Error Statistics (X_n = 2.0)")
+print("=" * 60)
+# Absolute error for mean (since exact mean can be close to zero)
+mean_abs_errors = np.abs(means_learned - means_exact)
+# Relative error for variance
+var_rel_errors = np.abs(vars_learned - vars_exact) / vars_exact * 100
+
+print(f"Conditional Mean:")
+print(f"  Max absolute error: {np.max(mean_abs_errors):.6f}")
+print(f"  Mean absolute error: {np.mean(mean_abs_errors):.6f}")
+print(f"  Exact mean range: [{np.min(means_exact):.4f}, {np.max(means_exact):.4f}]")
+print(f"  Learned mean range: [{np.min(means_learned):.4f}, {np.max(means_learned):.4f}]")
+print(f"Conditional Variance (exact = {cfg.DT}):")
+print(f"  Max relative error: {np.max(var_rel_errors):.2f}%")
+print(f"  Mean relative error: {np.mean(var_rel_errors):.2f}%")
+print(f"  Learned variance range: [{np.min(vars_learned):.6f}, {np.max(vars_learned):.6f}]")
 
 # =============================================================================
 # Figure 2: Heatmap of Conditional Distribution
@@ -203,12 +236,14 @@ vmax = max(vmax, pdf_learned_grid.max())
 # Re-plot exact with updated scale
 axes[0].clear()
 im = axes[0].contourf(MU, Y, pdf_exact_grid, levels=50, cmap='viridis', vmin=vmin, vmax=vmax)
-axes[0].set_xlabel(r'$\mu$', fontsize=16)
-axes[0].set_ylabel(r'$X_{n+1}$', fontsize=16, rotation=0, ha='right')
+axes[0].set_xlabel(r'$\mu$')
+axes[0].set_ylabel(r'$X_{n+1}$', rotation=0, ha='right')
+axes[0].set_title('Exact')
 
 ax = axes[1]
 im = ax.contourf(MU, Y, pdf_learned_grid, levels=50, cmap='viridis', vmin=vmin, vmax=vmax)
-ax.set_xlabel(r'$\mu$', fontsize=16)
+ax.set_xlabel(r'$\mu$')
+ax.set_title('Learned')
 # Remove y-axis for right panel (shared y-axis)
 ax.set_yticklabels([])
 ax.tick_params(axis='y', length=0)
@@ -218,7 +253,8 @@ ax.spines['left'].set_visible(False)
 fig.subplots_adjust(bottom=0.25)
 cbar_ax = fig.add_axes([0.15, 0.08, 0.7, 0.03])
 cbar = fig.colorbar(im, cax=cbar_ax, orientation='horizontal')
-cbar.set_label('Density', fontsize=14)
+cbar.set_label('Density')
+cbar.ax.tick_params(labelsize=14)
 
 plt.savefig(os.path.join(cfg.FIG_DIR, 'fig2_heatmap.pdf'), dpi=300, bbox_inches='tight')
 plt.close()
@@ -260,29 +296,37 @@ for col, mu in enumerate(mu_values):
     y_min, y_max = np.percentile(all_samples, [1, 99])
     y_range = np.linspace(y_min - 0.5, y_max + 0.5, 300)
 
-    # MC ground truth: wider, more transparent
+    # MC ground truth: solid line
     kde_exact = gaussian_kde(x_T_exact)
     pdf_mc = kde_exact(y_range)
-    ax.plot(y_range, pdf_mc, color=colors[0], linewidth=3, alpha=0.5, label='MC')
+    ax.plot(y_range, pdf_mc, color=colors[0], linewidth=LINEWIDTH, label='MC')
 
-    # Analytical: wider, more transparent
+    # Analytical: dashed line (same color as MC for reference solutions)
     pdf_analytical = exact_terminal_pdf_gaussian_init(y_range, m0_gauss, sigma0_gauss, mu, T_final)
-    ax.plot(y_range, pdf_analytical, color=colors[1], linewidth=3, alpha=0.5, label='Analytical')
+    ax.plot(y_range, pdf_analytical, '--', color=colors[1], linewidth=LINEWIDTH, label='Analytical')
 
-    # Our Method: thinner, solid
+    # Our Method: markers (different color to distinguish)
     kde_learned = gaussian_kde(x_T_learned)
     pdf_learned = kde_learned(y_range)
-    ax.plot(y_range, pdf_learned, color=colors[2], linewidth=1.5, label='Our Method')
+    subsample = 15
+    ax.plot(y_range[::subsample], pdf_learned[::subsample], 'o', color=colors[2],
+            markersize=MARKERSIZE, label='Learned')
 
-    ax.set_xlabel(r'$X_T$', fontsize=16)
+    # Add vertical line for mean
+    mean_analytical = m0_gauss + mu * T_final
+    ax.axvline(x=mean_analytical, color='gray', linestyle=':', linewidth=2, alpha=0.7)
+
+    # Set y-axis limit with some padding at the top
+    all_pdfs = np.concatenate([pdf_mc, pdf_analytical, pdf_learned])
+    ax.set_ylim(0, np.max(all_pdfs) * 1.15)
+
+    ax.set_xlabel(r'$X_T$')
     if col == 0:
-        ax.set_ylabel('Density', fontsize=16, rotation=0, ha='right')
+        ax.set_ylabel('Density', rotation=0, ha='right')
+        ax.set_title(f'$\\mu = {mu}$')
     else:
-        # Remove y-axis for right panel (shared y-axis)
-        ax.set_yticklabels([])
-        ax.tick_params(axis='y', length=0)
-        ax.spines['left'].set_visible(False)
-        ax.legend(fontsize=14)  # Show legend in right panel
+        ax.set_title(f'$\\mu = {mu}$')
+        ax.legend(loc='upper right')
 
     # Statistics
     print(f"\nGaussian initial, mu={mu}:")
